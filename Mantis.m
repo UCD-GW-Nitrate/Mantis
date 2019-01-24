@@ -22,7 +22,7 @@ function varargout = Mantis(varargin)
 
 % Edit the above text to modify the response to help Mantis
 
-% Last Modified by GUIDE v2.5 17-Sep-2018 06:15:28
+% Last Modified by GUIDE v2.5 24-Sep-2018 00:50:33
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -72,12 +72,14 @@ function varargout = Mantis_OutputFcn(hObject, eventdata, handles)
 % Get default command line output from handles structure
 varargout{1} = handles.output;
 ha = axes('units','normalized', 'Tag','logo',...
-            'position',[0.94 0.91 0.09*0.7 0.09]);
+            'position',[0.95 0.91 0.09*0.7 0.09]);
 uistack(ha,'bottom');
 I=imread('mantis1.jpeg');
 hi = imagesc(I);
 set(ha,'handlevisibility','off', ...
             'visible','off')
+axis(ha,'equal')
+
 
 
 % --- Executes on slider movement.
@@ -238,6 +240,7 @@ function RunButton_Callback(hObject, eventdata, handles)
 LU = evalin('base','LU');
 opt = evalin('base', 'opt');
 RUNS = evalin('base','RUNS');
+MAPS = evalin('base','MAPS');
 
 % set a tag
 htagbox = findobj('Tag', 'NickNameRun');
@@ -264,12 +267,14 @@ end
 
 
 %ax = findobj('Tag','MainPlot');
-out = MainRun( [LU.DWRCAMLCode, LU.perc], runtag, opt.sim_accuracy );
-RUNS = [RUNS;out];
-assignin('base', 'RUNS', RUNS);
-set(hTagList, 'String', ListofRuns);
-set(hTagList, 'Value', length(ListofRuns));
-drawnow
+out = MainRun(MAPS, [LU.DWRCAMLCode, LU.perc], runtag, opt.sim_accuracy );
+if ~isempty(out)
+    RUNS = [RUNS;out];
+    assignin('base', 'RUNS', RUNS);
+    set(hTagList, 'String', ListofRuns);
+    set(hTagList, 'Value', length(ListofRuns));
+    drawnow
+end
 
 
 
@@ -301,33 +306,49 @@ function LoadDataButton_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-MAPS = load('MAPS.mat');
-assignin('base', 'MAPS', MAPS);
-hPlotMap = findobj('Tag', 'MapPlot');
-plot(hPlotMap, MAPS.CVmap(1,1).data.X, MAPS.CVmap(1,1).data.Y, 'linewidth',2);
-axis(hPlotMap,'off','equal');
-
 
 hstat = findobj('Tag','Stats');
-set(hstat,'String', 'Loading Data...');
+set(hstat,'String', 'Loading URFS...');
 drawnow
 yrs = 1945:15:2050;
-URFS = load('Local/Tule/ALLURFS'); % Unit Response Function data
-Spnts = shaperead('gis_data/TuleStrmlnPointsHome'); % URF end Points at the land side
+
+% Unit Response Function data
+%URFS = load('Local/Tule/ALLURFS'); 
+%Spnts = shaperead('gis_data/TuleStrmlnPointsHome'); % URF end Points at the land side
+URFS = load('Local/CVHM/CVHM_ALLURFS_TA');
+
 assignin('base', 'URFS', URFS);
-assignin('base', 'Spnts', Spnts);
+%assignin('base', 'Spnts', Spnts);
+
+
 % Load Ngw
+set(hstat,'String', 'Loading NGW maps...');
+drawnow
 for jj = 1:length(yrs)
     Ngw{jj,1} = imread(['Local/Ngw_' num2str(yrs(jj)) '.tif']);
     Ngw{jj,1}(Ngw{jj,1} == Ngw{jj,1}(1,1)) = 0;
 end
 assignin('base', 'Ngw', Ngw);
 % Load Land use historic maps
+set(hstat,'String', 'Loading LU maps...');
+drawnow
 for jj = 1:5
     LUmaps{jj,1} = imread(['Local/model_input_LU' num2str(yrs(jj)) '.tif']);
 end
+
 assignin('base', 'LUmaps', LUmaps);
 
+
+% Load wells
+%load('Local/Tule/TuleWells');
+load('Local/CVHM/CVHMWells');
+
+% load wells
+set(hstat,'String', 'Loading Wells...');
+drawnow
+%Wells = shaperead('Local/Tule/TuleWells3310');
+%load('Local/Tule/TuleWells');
+assignin('base', 'Wells', Wells);
 
 
 set(hstat,'String', 'Loading Done');
@@ -526,7 +547,7 @@ for ii = 1:size(RUNS,1)
         hold(hPlot, 'on');
         linesPlot = plot(hPlot, sim_yrs, perc', 'color', opt.clr_list(opt.clr_id,:), ...
                         'linewidth', 1.5); %, 'DisplayName', RUNS(ii,1).Tag
-        linesGroup = hggroup('DisplayName', RUNS(ii,1).Tag);
+        linesGroup = hggroup(hPlot,'DisplayName', RUNS(ii,1).Tag);
         set(linesPlot,'Parent',linesGroup);
         set(get(get(linesGroup,'Annotation'),'LegendInformation'),'IconDisplayStyle','on');
         
@@ -640,6 +661,9 @@ function SpatialSelection_Callback(hObject, eventdata, handles)
 
 % Hints: contents = cellstr(get(hObject,'String')) returns SpatialSelection contents as cell array
 %        contents{get(hObject,'Value')} returns selected item from SpatialSelection
+imap = get(hObject,'Value');
+SetMap(imap);
+
 
 
 % --- Executes during object creation, after setting all properties.
@@ -653,3 +677,88 @@ function SpatialSelection_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
+
+MAPS = load('MAPS.mat');
+
+set(hObject,'String', {MAPS.CVmap.name});
+set(hObject,'Value', 1);
+MAPS.imap = 1;
+MAPS.SelPoly = false(1,1);
+assignin('base', 'MAPS', MAPS);
+SetMap(1);
+
+%hPlotMap = findobj('Tag', 'MapPlot');
+%plot(hPlotMap, MAPS.CVmap(1,1).data.X, MAPS.CVmap(1,1).data.Y, 'linewidth',2);
+%axis(hPlotMap,'off','equal');
+
+function SetMap(imap)
+MAPS = evalin('base','MAPS');
+if imap > length(MAPS.CVmap)
+    warndlg(['You tried to set map ' num2str(imap) ' but there are only ' num2str(length(MAPS.CVmap)) ' maps in the list']);
+else
+    hPlotMap = findobj('Tag','MapPlot');
+    
+    cla(hPlotMap);
+    hold(hPlotMap, 'on');
+    for ii = 1:length(MAPS.CVmap(imap).data)
+        plot(hPlotMap, MAPS.CVmap(imap).data(ii,1).X, MAPS.CVmap(imap).data(ii,1).Y, 'color', [0 0.4470 0.7410], 'linewidth', 1.5);
+    end
+    axis(hPlotMap, 'equal','off')
+    
+    hold(hPlotMap, 'off');
+end
+
+MAPS.imap = imap;
+MAPS.SelPoly = false(length(MAPS.CVmap(imap).data),1);
+assignin('base', 'MAPS', MAPS);
+
+
+% --- Executes on button press in PointSelect.
+function PointSelect_Callback(hObject, eventdata, handles)
+% hObject    handle to PointSelect (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+hPlotMap = findobj('Tag','MapPlot');
+axes(hPlotMap);
+
+MAPS = evalin('base','MAPS');
+
+while 1
+    [x, y, button] = ginput(1);
+    if button ~= 1
+        break;
+    end
+    p = [x y];
+
+    %get(gcf,'SelectionType')
+
+    
+    imap = MAPS.imap;
+    for ii = 1:length(MAPS.CVmap(imap).data)
+        in = inpolygon(p(1), p(2), MAPS.CVmap(imap).data(ii,1).X, MAPS.CVmap(imap).data(ii,1).Y);
+        if in
+            if MAPS.SelPoly(ii)
+                MAPS.SelPoly(ii)= false;
+            else
+                MAPS.SelPoly(ii)= true;
+            end
+           cla(hPlotMap);
+           hold(hPlotMap, 'on');
+           for jj = 1:length(MAPS.CVmap(imap).data)
+               if ~MAPS.SelPoly(jj)
+                    plot(hPlotMap, MAPS.CVmap(imap).data(jj,1).X, MAPS.CVmap(imap).data(jj,1).Y, 'color', [0 0.4470 0.7410], 'linewidth', 1.5);
+               else
+                   [Xs, Ys] = polysplit(MAPS.CVmap(imap).data(jj,1).X, MAPS.CVmap(imap).data(jj,1).Y);
+                   for kk = 1:length(Xs)
+                       if ispolycw(Xs{kk,1}, Ys{kk,1})
+                            patch(Xs{kk,1}, Ys{kk,1},[0.8500 0.3250 0.0980], 'FaceAlpha',0.5'); %, 'FaceColor',[0.8500 0.3250 0.0980]
+                       end
+                   end
+               end
+           end
+           hold(hPlotMap, 'off');
+           break;
+        end
+    end
+end
+assignin('base', 'MAPS', MAPS);

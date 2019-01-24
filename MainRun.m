@@ -1,9 +1,26 @@
-function out = MainRun( LUinfo, RunTag, accuracy)
-%MainRun runs the convolution for a given Land use reduction
-%   The input of the function is a N x 2 matrix. 
-%   The first column is the land use id and 
-%   the second column is the percentage of loading for the given category
-%   100 % means no reduction
+function out = MainRun(MAPS, LUinfo, RunTag, accuracy)
+% MainRun runs the convolution for a given Land use reduction
+%
+% MAPS : a structure that containts information about the area to compute
+%        the statistics
+%        The fields of the map structure are CVmap, imap, SelPoly
+%   CVmap is also a structure with 2 fields name and data.
+%        the name is what users select from the dropdown menu and the data
+%        contain the structure as it is gread by the shaperead function.
+%   imap is an integer that spans from 1 to length(MAPS.CVmap) indicating
+%        which map is active
+%   SelPoly is a boolean vector of length length(MAPS.CVmap(MAPS.imap,1).data)
+%           where true indicates which areas to consider during the
+%           computations
+%           
+% LUinfo: This is a N x 2 matrix. 
+%         The first column is the land use id and 
+%         the second column is the percentage of loading for the given category
+%         100 % means no reduction
+%
+% RunTag: A tag for a given run
+%
+% accuracy indicats the percantage of wells to use for the computation 
 
 out = [];
 yrs = 1945:15:2050;
@@ -16,16 +33,50 @@ hcppmode = findobj('Tag', 'cpp_mode');
 set(hstat,'String', 'Boiling data...');
 drawnow
 URFS = evalin('base','URFS');
-Spnts = evalin('base','Spnts');
+%Spnts = evalin('base','Spnts');
 Ngw = evalin('base','Ngw');
 LUmaps = evalin('base','LUmaps');
+Wells = evalin('base','Wells');
 
-Spnts_Eid = [Spnts.Eid]';
-Spnts_X = [Spnts.X]';
-Spnts_Y = [Spnts.Y]';
-Spnts_V = [Spnts.Vland]';
+% Pick wells based on the map selection
+if MAPS.imap > length(MAPS.CVmap)
+    error('Wrong Map id')
+end
+id_areas = find(MAPS.SelPoly);
+if ~isempty(id_areas)
+    wx = [Wells.X]';
+    wy = [Wells.Y]';
+    well_ids = [];
+    for ii = 1:length(id_areas)
+        in = inpolygon(wx, wy, MAPS.CVmap(MAPS.imap,1).data(id_areas(ii),1).X,...
+                               MAPS.CVmap(MAPS.imap,1).data(id_areas(ii),1).Y);
+        well_ids = [well_ids; [Wells(in,1).Eid]'];
+    end
+    if isempty(well_ids)
+        set(hstat,'String', 'No wells found in the selected areas');
+        return
+    end
+        
+else
+    well_ids = [Wells.id]';
+end
+
+
+%Spnts_Eid = [Spnts.Eid]';
+%Spnts_X = [Spnts.X]';
+%Spnts_Y = [Spnts.Y]';
+%Spnts_V = [Spnts.Vland]';
+Spnts_Eid = [URFS.URFS.Eid]';
+Spnts_X = [URFS.URFS.X]';
+Spnts_Y = [URFS.URFS.Y]';
+Spnts_V = [URFS.URFS.Vland]';
 
 Wellids = unique(Spnts_Eid);
+
+% the Wellids are the entity ids of the URFS, while the well_ids are the
+% ids of the wells to consider for the statistical analysis. 
+% Finally the wells to consider is the intersection of these two sets.
+Wellids = intersect(well_ids, Wellids);
 
 % choose a number of wells based on the accuracy
 Nwells = ceil(max(10, length(Wellids)*accuracy));
@@ -45,7 +96,7 @@ tempurf = URFS.URFS(Spnt_sim_id,:);
 IJ = findIJ(Spnts_X, Spnts_Y);
 
 LFNC = zeros(length(Spnt_sim_id), Nsim_yrs);
-ALLURFS = zeros(length(Spnt_sim_id),length(URFS.URFS(1).URF));
+ALLURFS = zeros(length(Spnt_sim_id),200);
 set(hstat,'String', 'Building Loading functions...');
 drawnow
 tic
@@ -99,7 +150,12 @@ for ii = 1:length(Spnt_sim_id)
     
     LFNC(ii,:) = LF;
     %LFNC_base(ii,:) = LF_base;
-    ALLURFS(ii,:) = tempurf(ii).URF;
+    %ALLURFS(ii,:) = tempurf(ii).URF;
+    if isempty(tempurf(ii).urf)
+        ALLURFS(ii,:) = zeros(1,200);
+    else
+        ALLURFS(ii,:) = reBuildURF(tempurf(ii).urf.x, tempurf(ii).urf.y);
+    end
 end
 time_lf = toc;
 set(hstat,'String', 'Calculating BTC...');
@@ -115,7 +171,7 @@ time_bct = toc;
 
 tic
 wells_btc = zeros(length(well_sim_id), size(LFNC,2));
-wgh = [tempurf.v_cds]';
+wgh = [tempurf.Vcds]';
 for ii = 1:length(well_sim_id)
     % find the streamlines of well ii
     id = find(Spnts_Eid == well_sim_id(ii));
@@ -189,10 +245,14 @@ function IJ = findIJ(x, y)
 end
 
 function id = findElemAinB(A,B)
-id = [];
-for ii = 1:length(A)
-    id = [id; find(B == A(ii))];
+    id = [];
+    for ii = 1:length(A)
+        id = [id; find(B == A(ii))];
+    end
 end
+
+function urf = reBuildURF(x,y)
+    urf = interp1(x,y,1:200);
 end
 
 
